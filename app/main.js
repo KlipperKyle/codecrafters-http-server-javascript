@@ -46,13 +46,13 @@ function dispatchClient(socket) {
 		}
 	    } else if (matches = /^(\S+):\s*(.*)/.exec(line)) {
 		// Header: Value
-		let header = matches[1];
+		let header = matches[1].toLowerCase();
 		let value = matches[2];
 		headers[header] = value;
 	    } else if (matches = /^$/.exec(line)) {
 		// That's the whole request, folks!
 		if (userAgentEcho) {
-		    let ua = headers["User-Agent"] ?? "";
+		    let ua = headers["user-agent"] ?? "";
 		    response = "HTTP/1.1 200 OK\r\n";
 		    response += "Content-Type: text/plain\r\n";
 		    response += `Content-Length: ${ua.length}\r\n\r\n`;
