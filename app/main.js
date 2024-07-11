@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 const net = require("net");
 
 // Uncomment this to pass the first stage
@@ -23,6 +24,13 @@ const server = net.createServer((socket) => {
 		let path = matches[1];
 		if (path === "/") {
 		    socket.write("HTTP/1.1 200 OK\r\n\r\n");
+		} else if (matches = /^\/echo\/(.*)/.exec(path)) {
+		    let str = matches[1];
+		    let response = "HTTP/1.1 200 OK\r\n";
+		    response += "Content-Type: text/plain\r\n";
+		    response += `Content-Length: ${str.length}\r\n\r\n`;
+		    response += str;
+		    socket.write(response);
 		} else {
 		    socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
 		}
