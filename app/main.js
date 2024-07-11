@@ -37,6 +37,8 @@ function dispatchClient(socket) {
 		} else if (matches = /^\/user-agent\/?$/.exec(path)) {
 		    // GET /user-agent
 		    // Echo the User-Agent later
+		    console.log(`200 OK: GET ${path} from ` +
+				`${socket.remoteAddress}:${socket.remotePort}`);
 		    userAgentEcho = true;
 		} else {
 		    // GET {anything else}
