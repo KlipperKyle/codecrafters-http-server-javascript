@@ -2,14 +2,13 @@
 
 const net = require("net");
 
-// Uncomment this to pass the first stage
-const server = net.createServer((socket) => {
+function dispatchClient(socket) {
     let buffer = "";
     console.log(`Connection from ${socket.remoteAddress}:${socket.remotePort}`);
-    socket.on("close", () => {
+    socket.on("close", function() {
 	socket.end();
     });
-    socket.on("data", (data) => {
+    socket.on("data", function(data) {
 	let newdata = data.toString();
 	// You should buffer input.
 	// https://www.reddit.com/r/node/comments/59zgte/comment/d9cnymh/
@@ -17,7 +16,7 @@ const server = net.createServer((socket) => {
 	let lines = buffer.split("\r\n");
 	buffer = lines[lines.length - 1];
 	lines = lines.slice(0, -1);
-	lines.forEach((line) => {
+	lines.forEach(function(line) {
 	    let matches;
 	    // GET request
 	    if (matches = /^GET\s+(\S+)/.exec(line)) {
@@ -38,7 +37,8 @@ const server = net.createServer((socket) => {
 	    }
 	});
     });
-});
+}
 
+const server = net.createServer(dispatchClient);
 server.listen(4221, "localhost");
 console.log("Listening on localhost:4221 ...");
