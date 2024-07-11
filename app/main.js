@@ -4,7 +4,6 @@ const net = require("net");
 
 function dispatchClient(socket) {
     let buffer = "";
-    console.log(`Connection from ${socket.remoteAddress}:${socket.remotePort}`);
     socket.on("close", function() {
 	socket.end();
     });
@@ -22,8 +21,12 @@ function dispatchClient(socket) {
 	    if (matches = /^GET\s+(\S+)/.exec(line)) {
 		let path = matches[1];
 		if (path === "/") {
+		    console.log(`200 OK: GET ${path} from ` +
+				`${socket.remoteAddress}:${socket.remotePort}`);
 		    socket.write("HTTP/1.1 200 OK\r\n\r\n");
 		} else if (matches = /^\/echo\/(.*)/.exec(path)) {
+		    console.log(`200 OK: GET ${path} from ` +
+				`${socket.remoteAddress}:${socket.remotePort}`);
 		    let str = matches[1];
 		    let response = "HTTP/1.1 200 OK\r\n";
 		    response += "Content-Type: text/plain\r\n";
@@ -31,6 +34,8 @@ function dispatchClient(socket) {
 		    response += str;
 		    socket.write(response);
 		} else {
+		    console.error(`ERROR: 404 Not Found: GET ${path} from ` +
+				  `${socket.remoteAddress}:${socket.remotePort}`);
 		    socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
 		}
 		socket.end();
