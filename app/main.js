@@ -2,6 +2,44 @@
 
 const net = require("net");
 
+const HELP =`
+main.js: CodeCrafters HTTP Server in JavaScript
+
+Options:
+
+(--directory | -d) DIR
+	Serve files from DIR
+--help | -h
+	Show this help
+`;
+
+let directory;
+
+function parseArgs(argv) {
+    // Process CLI options
+    argv.shift();
+    argv.shift();
+    while (argv.length > 0) {
+	let a = argv.shift();
+	if (a === "--directory" || a === "-d") {
+	    if (argv.length == 0) {
+		console.error("ERROR: Must specify directory with --directory or -d");
+		process.exit(1);
+	    }
+	    let d = argv.shift();
+	    directory = d;
+	    process.chdir(directory);
+	} else if (a === "--help" || a === "-h" || a === "-?") {
+	    console.log(HELP)
+	    process.exit();
+	} else {
+	    console.error(`ERROR: Unkown parameter ${a}`);
+	    console.error(HELP);
+	    process.exit(1);
+	}
+    }
+}
+
 function dispatchClient(socket) {
     let buffer = "";
     let response = "";
@@ -72,6 +110,7 @@ function dispatchClient(socket) {
     socket.on("close", close);
 }
 
+parseArgs(process.argv);
 const server = net.createServer(dispatchClient);
 server.listen(4221, "localhost");
 console.log("Listening on localhost:4221 ...");
