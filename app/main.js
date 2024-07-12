@@ -61,6 +61,15 @@ function dispatchClient(socket) {
 	if (matches = /^GET\s+(\S+)/.exec(line)) {
 	    // GET request
 	    let path = matches[1];
+	    if (response.length > 0) {
+		// 400 Bad Request
+		// You can't have multiple GET lines.
+		response = "HTTP/1.1 400 Bad Request\r\n\r\n";
+		console.error(`ERROR: 400 Bad Request: from ` +
+			      `${socket.remoteAddress}:${socket.remotePort}`);
+		close();
+		return;
+	    }
 	    if (path === "/") {
 		// GET /
 		console.log(`200 OK: GET ${path} from ` +
@@ -80,6 +89,7 @@ function dispatchClient(socket) {
 		// Echo the User-Agent later
 		console.log(`200 OK: GET ${path} from ` +
 			    `${socket.remoteAddress}:${socket.remotePort}`);
+		response = "HTTP/1.1 200 OK\r\n";
 		userAgentEcho = true;
 	    } else {
 		// GET {anything else}
@@ -96,7 +106,6 @@ function dispatchClient(socket) {
 	    // That's the whole request, folks!
 	    if (userAgentEcho) {
 		let ua = headers["user-agent"] ?? "";
-		response = "HTTP/1.1 200 OK\r\n";
 		response += "Content-Type: text/plain\r\n";
 		response += `Content-Length: ${ua.length}\r\n\r\n`;
 		response += ua;
