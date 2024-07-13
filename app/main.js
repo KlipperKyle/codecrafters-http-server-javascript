@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
+const fs = require("node:fs");
 const net = require("net");
+const path = require("node:path");
 
 const HELP =`
 main.js: CodeCrafters HTTP Server in JavaScript
@@ -26,8 +28,7 @@ function parseArgs(argv) {
 		console.error("ERROR: Must specify directory with --directory or -d");
 		process.exit(1);
 	    }
-	    let d = argv.shift();
-	    directory = d;
+	    directory = path.resolve(argv.shift());
 	    process.chdir(directory);
 	} else if (a === "--help" || a === "-h" || a === "-?") {
 	    console.log(HELP)
@@ -60,40 +61,71 @@ function dispatchClient(socket) {
 	let matches;
 	if (matches = /^GET\s+(\S+)/.exec(line)) {
 	    // GET request
-	    let path = matches[1];
+	    let gpath = matches[1];
 	    if (response.length > 0) {
 		// 400 Bad Request
 		// You can't have multiple GET lines.
-		response = "HTTP/1.1 400 Bad Request\r\n\r\n";
 		console.error(`ERROR: 400 Bad Request: from ` +
 			      `${socket.remoteAddress}:${socket.remotePort}`);
+		response = "HTTP/1.1 400 Bad Request\r\n\r\n";
 		close();
 		return;
 	    }
-	    if (path === "/") {
+	    if (gpath === "/") {
 		// GET /
-		console.log(`200 OK: GET ${path} from ` +
+		console.log(`200 OK: GET ${gpath} from ` +
 			    `${socket.remoteAddress}:${socket.remotePort}`);
 		response = "HTTP/1.1 200 OK\r\n\r\n";
-	    } else if (matches = /^\/echo\/(.*)/.exec(path)) {
+	    } else if (matches = /^\/echo\/(.*)/.exec(gpath)) {
 		// GET /echo/{str}
-		console.log(`200 OK: GET ${path} from ` +
+		console.log(`200 OK: GET ${gpath} from ` +
 			    `${socket.remoteAddress}:${socket.remotePort}`);
 		let str = matches[1];
 		response = "HTTP/1.1 200 OK\r\n";
 		response += "Content-Type: text/plain\r\n";
 		response += `Content-Length: ${str.length}\r\n\r\n`;
 		response += str;
-	    } else if (matches = /^\/user-agent\/?$/.exec(path)) {
+	    } else if (matches = /^\/files\/(.*)/.exec(gpath)) {
+		// GET /files/{filepath}
+		let fpath = path.resolve(matches[1]);
+		if (directory === undefined) {
+		    console.error(`ERROR: 403 Forbidden: GET ${gpath} from ` +
+				  `${socket.remoteAddress}:${socket.remotePort}`);
+		    response = "HTTP/1.1 403 Forbidden\r\n\r\n";
+		    return;
+		}
+		if (! fs.existsSync(fpath)) {
+		    console.error(`ERROR: 404 Not Found: GET ${gpath} from ` +
+				  `${socket.remoteAddress}:${socket.remotePort}`);
+		    response = "HTTP/1.1 404 Not Found\r\n\r\n";
+		    return;
+		}
+		try {
+		    if (! new RegExp(`^${directory}/`).test(fpath)) {
+			throw new Error("Path is outside cwd");
+		    }
+		    contents = fs.readFileSync(fpath);
+		    console.log(`200 OK: GET ${gpath} from ` +
+				`${socket.remoteAddress}:${socket.remotePort}`);
+		    response = "HTTP/1.1 200 OK\r\n";
+		    response += "Content-Type: application/octet-stream\r\n";
+		    response += `Content-Length: ${contents.length}\r\n\r\n`;
+		    response += contents;
+		} catch (err) {
+		    console.error(`ERROR: 403 Forbidden: GET ${gpath} from ` +
+				`${socket.remoteAddress}:${socket.remotePort}`);
+		    response = "HTTP/1.1 403 Forbidden\r\n\r\n";
+		}
+	    } else if (matches = /^\/user-agent\/?$/.exec(gpath)) {
 		// GET /user-agent
 		// Echo the User-Agent later
-		console.log(`200 OK: GET ${path} from ` +
+		console.log(`200 OK: GET ${gpath} from ` +
 			    `${socket.remoteAddress}:${socket.remotePort}`);
 		response = "HTTP/1.1 200 OK\r\n";
 		userAgentEcho = true;
 	    } else {
 		// GET {anything else}
-		console.error(`ERROR: 404 Not Found: GET ${path} from ` +
+		console.error(`ERROR: 404 Not Found: GET ${gpath} from ` +
 			      `${socket.remoteAddress}:${socket.remotePort}`);
 		response = "HTTP/1.1 404 Not Found\r\n\r\n";
 	    }
