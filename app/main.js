@@ -43,21 +43,23 @@ function parseArgs(argv) {
 
 function dispatchClient(socket) {
     // Handle a single client connection
-    let buffer = "";
+    let sockInput = "";
     let response = "";
     let headers = {};
     let userAgentEcho = false;
-    function getData(data) {
-	let newdata = data.toString();
+    function onData(data) {
+	// Incoming data event handler
 	// You should buffer input.
 	// https://www.reddit.com/r/node/comments/59zgte/comment/d9cnymh/
-	buffer += newdata;
-	let lines = buffer.split("\r\n");
-	buffer = lines[lines.length - 1];
-	lines = lines.slice(0, -1);
+	sockInput += data.toString();
+	let lines = sockInput.split("\r\n");
+	sockInput = lines.pop();
+	// sockInput contains the last line fragment, i.e. characters
+	// that were not terminated with a \r\n.
 	lines.forEach(readLine);
     }
     function readLine(line) {
+	// Read a line from the incoming buffer
 	let matches;
 	if (matches = /^GET\s+(\S+)/.exec(line)) {
 	    // GET request
@@ -65,69 +67,20 @@ function dispatchClient(socket) {
 	    if (response.length > 0) {
 		// 400 Bad Request
 		// You can't have multiple GET lines.
-		console.error(`ERROR: 400 Bad Request: from ` +
-			      `${socket.remoteAddress}:${socket.remotePort}`);
-		response = "HTTP/1.1 400 Bad Request\r\n\r\n";
+		badRequest();
 		close();
 		return;
 	    }
 	    if (gpath === "/") {
-		// GET /
-		console.log(`200 OK: GET ${gpath} from ` +
-			    `${socket.remoteAddress}:${socket.remotePort}`);
-		response = "HTTP/1.1 200 OK\r\n\r\n";
+		getSlash();
 	    } else if (matches = /^\/echo\/(.*)/.exec(gpath)) {
-		// GET /echo/{str}
-		console.log(`200 OK: GET ${gpath} from ` +
-			    `${socket.remoteAddress}:${socket.remotePort}`);
-		let str = matches[1];
-		response = "HTTP/1.1 200 OK\r\n";
-		response += "Content-Type: text/plain\r\n";
-		response += `Content-Length: ${str.length}\r\n\r\n`;
-		response += str;
+		getEcho(matches[1]);
 	    } else if (matches = /^\/files\/(.*)/.exec(gpath)) {
-		// GET /files/{filepath}
-		let fpath = path.resolve(matches[1]);
-		if (directory === undefined) {
-		    console.error(`ERROR: 403 Forbidden: GET ${gpath} from ` +
-				  `${socket.remoteAddress}:${socket.remotePort}`);
-		    response = "HTTP/1.1 403 Forbidden\r\n\r\n";
-		    return;
-		}
-		if (! fs.existsSync(fpath)) {
-		    console.error(`ERROR: 404 Not Found: GET ${gpath} from ` +
-				  `${socket.remoteAddress}:${socket.remotePort}`);
-		    response = "HTTP/1.1 404 Not Found\r\n\r\n";
-		    return;
-		}
-		try {
-		    if (! new RegExp(`^${directory}/`).test(fpath)) {
-			throw new Error("Path is outside cwd");
-		    }
-		    contents = fs.readFileSync(fpath);
-		    console.log(`200 OK: GET ${gpath} from ` +
-				`${socket.remoteAddress}:${socket.remotePort}`);
-		    response = "HTTP/1.1 200 OK\r\n";
-		    response += "Content-Type: application/octet-stream\r\n";
-		    response += `Content-Length: ${contents.length}\r\n\r\n`;
-		    response += contents;
-		} catch (err) {
-		    console.error(`ERROR: 403 Forbidden: GET ${gpath} from ` +
-				`${socket.remoteAddress}:${socket.remotePort}`);
-		    response = "HTTP/1.1 403 Forbidden\r\n\r\n";
-		}
+		getFiles(matches[1]);
 	    } else if (matches = /^\/user-agent\/?$/.exec(gpath)) {
-		// GET /user-agent
-		// Echo the User-Agent later
-		console.log(`200 OK: GET ${gpath} from ` +
-			    `${socket.remoteAddress}:${socket.remotePort}`);
-		response = "HTTP/1.1 200 OK\r\n";
-		userAgentEcho = true;
+		getUserAgent();
 	    } else {
-		// GET {anything else}
-		console.error(`ERROR: 404 Not Found: GET ${gpath} from ` +
-			      `${socket.remoteAddress}:${socket.remotePort}`);
-		response = "HTTP/1.1 404 Not Found\r\n\r\n";
+		getFallback(gpath);
 	    }
 	} else if (matches = /^(\S+):\s*(.*)/.exec(line)) {
 	    // Header: Value
@@ -136,20 +89,90 @@ function dispatchClient(socket) {
 	    headers[header] = value;
 	} else if (matches = /^$/.exec(line)) {
 	    // That's the whole request, folks!
-	    if (userAgentEcho) {
-		let ua = headers["user-agent"] ?? "";
-		response += "Content-Type: text/plain\r\n";
-		response += `Content-Length: ${ua.length}\r\n\r\n`;
-		response += ua;
-	    }
+	    echoUserAgent();
 	    close();
 	}
+    }
+    function getSlash() {
+	// GET /
+	console.log(`200 OK: GET / from ` +
+		    `${socket.remoteAddress}:${socket.remotePort}`);
+	response = "HTTP/1.1 200 OK\r\n\r\n";
+    }
+    function getEcho(str) {
+	// GET /echo/{str}
+	console.log(`200 OK: GET /echo/${str} from ` +
+		    `${socket.remoteAddress}:${socket.remotePort}`);
+	response = "HTTP/1.1 200 OK\r\n";
+	response += "Content-Type: text/plain\r\n";
+	response += `Content-Length: ${str.length}\r\n\r\n`;
+	response += str;
+    }
+    function getFiles(relpath) {
+	// GET /files/{filepath}
+	let fpath = path.resolve(relpath);
+	if (directory === undefined) {
+	    console.error(`ERROR: 403 Forbidden: GET /files/${relpath} from ` +
+			  `${socket.remoteAddress}:${socket.remotePort}`);
+	    response = "HTTP/1.1 403 Forbidden\r\n\r\n";
+	    return;
+	}
+	if (! fs.existsSync(fpath)) {
+	    console.error(`ERROR: 404 Not Found: GET /files/${relpath} from ` +
+			  `${socket.remoteAddress}:${socket.remotePort}`);
+	    response = "HTTP/1.1 404 Not Found\r\n\r\n";
+	    return;
+	}
+	try {
+	    if (! new RegExp(`^${directory}/`).test(fpath)) {
+		throw new Error("Path is outside cwd");
+	    }
+	    contents = fs.readFileSync(fpath);
+	    console.log(`200 OK: GET /files/${relpath} from ` +
+			`${socket.remoteAddress}:${socket.remotePort}`);
+	    response = "HTTP/1.1 200 OK\r\n";
+	    response += "Content-Type: application/octet-stream\r\n";
+	    response += `Content-Length: ${contents.length}\r\n\r\n`;
+	    response += contents;
+	} catch (err) {
+	    console.error(`ERROR: 403 Forbidden: GET /files/${relpath} from ` +
+			  `${socket.remoteAddress}:${socket.remotePort}`);
+	    response = "HTTP/1.1 403 Forbidden\r\n\r\n";
+	}
+    }
+    function getUserAgent() {
+	// GET /user-agent
+	console.log(`200 OK: GET /user-agent from ` +
+		    `${socket.remoteAddress}:${socket.remotePort}`);
+	response = "HTTP/1.1 200 OK\r\n";
+	// Echo the User-Agent later
+	userAgentEcho = true;
+    }
+    function echoUserAgent() {
+	if (userAgentEcho) {
+	    let ua = headers["user-agent"] ?? "";
+	    response += "Content-Type: text/plain\r\n";
+	    response += `Content-Length: ${ua.length}\r\n\r\n`;
+	    response += ua;
+	}
+    }
+    function getFallback(gpath) {
+	// GET {anything else}
+	console.error(`ERROR: 404 Not Found: GET ${gpath} from ` +
+		      `${socket.remoteAddress}:${socket.remotePort}`);
+	response = "HTTP/1.1 404 Not Found\r\n\r\n";
+    }
+    function badRequest() {
+	// 400 Bad Request
+	console.error(`ERROR: 400 Bad Request: from ` +
+		      `${socket.remoteAddress}:${socket.remotePort}`);
+	response = "HTTP/1.1 400 Bad Request\r\n\r\n";
     }
     function close() {
 	socket.write(response);
 	socket.end();
     }
-    socket.on("data", getData);
+    socket.on("data", onData);
     socket.on("close", close);
 }
 
