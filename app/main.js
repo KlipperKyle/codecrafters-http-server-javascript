@@ -43,10 +43,18 @@ function parseArgs(argv) {
 
 function dispatchClient(socket) {
     // Handle a single client connection
-    let sockInput = "";
-    let response = "";
-    let headers = {};
-    let userAgentEcho = false;
+    let sockInput = "";		// Buffer for raw input
+    let reqType = "";		// GET or POST
+    let response = "";		// Textual response to send to client
+    let headers = {};		// Hash of HTTP headers
+    let userAgentEcho = false;	// Triggers an echo of the client's
+				// User-Agent, for `GET /user-agent`
+    let isReadingBody = false;	// Whether we are reading the body of
+				// a POST, as opposed to HTTP headers
+    let writeFile = false;	// Triggers a file write, for `POST
+				// /files/{foo}`
+    let writeFilePath;		// Path of file to be written
+    let body = "";		// Body of the HTTP request, for POSTs
     function onData(data) {
 	// Incoming data event handler
 	// You should buffer input.
@@ -57,21 +65,29 @@ function dispatchClient(socket) {
 	// sockInput contains the last line fragment, i.e. characters
 	// that were not terminated with a \r\n.
 	lines.forEach(readLine);
+	if (isReadingBody) {
+	    body += sockInput;
+	    if (body.length >= (headers["content-length"] ?? 0)) {
+		writeFiles();
+		close();
+	    }
+	}
     }
     function readLine(line) {
 	// Read a line from the incoming buffer
 	let matches;
-	if (matches = /^GET\s+(\S+)/.exec(line)) {
+	if (isReadingBody) {
+	    body += line + "\r\n";
+	} else if (matches = /^GET\s+(\S+)/.exec(line)) {
 	    // GET request
 	    let gpath = matches[1];
+	    reqType = "GET";
 	    if (response.length > 0) {
 		// 400 Bad Request
-		// You can't have multiple GET lines.
+		// You can't have multiple GET/POST lines.
 		badRequest();
 		close();
-		return;
-	    }
-	    if (gpath === "/") {
+	    } else if (gpath === "/") {
 		getSlash();
 	    } else if (matches = /^\/echo\/(.*)/.exec(gpath)) {
 		getEcho(matches[1]);
@@ -82,15 +98,33 @@ function dispatchClient(socket) {
 	    } else {
 		getFallback(gpath);
 	    }
+	} else if (matches = /^POST\s+(\S+)/.exec(line)) {
+	    // POST request
+	    let ppath = matches[1];
+	    reqType = "POST";
+	    if (response.length > 0) {
+		// 400 Bad Request
+		// You can't have multiple GET/POST lines.
+		badRequest();
+		close();
+	    } else if (matches = /^\/files\/(.+)/.exec(ppath)) {
+		postFiles(matches[1]);
+	    } else {
+		postFallback(ppath);
+	    }
 	} else if (matches = /^(\S+):\s*(.*)/.exec(line)) {
 	    // Header: Value
 	    let header = matches[1].toLowerCase();
 	    let value = matches[2];
 	    headers[header] = value;
 	} else if (matches = /^$/.exec(line)) {
-	    // That's the whole request, folks!
+	    // That's all the headers, folks!
 	    echoUserAgent();
-	    close();
+	    if (reqType === "POST") {
+		isReadingBody = true;
+	    } else {
+		close();
+	    }
 	}
     }
     function getSlash() {
@@ -167,6 +201,42 @@ function dispatchClient(socket) {
 	console.error(`ERROR: 400 Bad Request: from ` +
 		      `${socket.remoteAddress}:${socket.remotePort}`);
 	response = "HTTP/1.1 400 Bad Request\r\n\r\n";
+    }
+    function postFiles(relpath) {
+	// POST /files/{relpath}
+	// Queue up a file write for later (writeFiles())
+	writeFile = true;
+	writeFilePath = relpath;
+    }
+    function writeFiles() {
+	if (!writeFile) {return;}
+	let fpath = path.resolve(writeFilePath);
+	if (directory === undefined) {
+	    console.error(`ERROR: 403 Forbidden: POST /files/${writeFilePath} from ` +
+			  `${socket.remoteAddress}:${socket.remotePort}`);
+	    response = "HTTP/1.1 403 Forbidden\r\n\r\n";
+	    return;
+	}
+	try {
+	    if (! new RegExp(`^${directory}/`).test(fpath)) {
+		throw new Error("Path is outside cwd");
+	    }
+	    fs.writeFileSync(fpath, body);
+	    console.log(`201 Created: POST /files/${writeFilePath} from ` +
+			`${socket.remoteAddress}:${socket.remotePort}`);
+	    response = "HTTP/1.1 201 Created\r\n\r\n";
+	} catch (err) {
+	    console.error(`ERROR: 403 Forbidden: POST /files/${writeFilePath} from ` +
+			  `${socket.remoteAddress}:${socket.remotePort}`);
+	    response = "HTTP/1.1 403 Forbidden\r\n\r\n";
+	}
+    }
+    function postFallback(ppath) {
+	// POST {anything else}
+	// 405 Method Not Allowed
+	console.error(`ERROR: 405 Method Not Allowed: POST ${ppath} from ` +
+		      `${socket.remoteAddress}:${socket.remotePort}`);
+	response = "HTTP/1.1 405 Method Not Allowed\r\n\r\n";
     }
     function close() {
 	socket.write(response);
