@@ -66,8 +66,8 @@ function dispatchClient(socket) {
 	    reqHead = Buffer.concat([reqHead, data]);
 	    let i = reqHead.indexOf("\r\n\r\n");
 	    if (i >= 0) {
-		reqHead = reqHead.slice(0, i + 2)
-		reqBody = reqHead.slice(i + 4)
+		reqBody = Buffer.from(reqHead.subarray(i + 4));
+		reqHead = Buffer.from(reqHead.subarray(0, i + 2));
 		reqHead.toString().split("\r\n").forEach(readLine);
 	    }
 	} else {
