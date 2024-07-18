@@ -43,7 +43,7 @@ function parseArgs(argv) {
 
 function dispatchClient(socket) {
     // Handle a single client connection
-    let sockInput = "";		// Buffer for raw input
+    let head = "";		// Command and headers
     let reqType = "";		// GET or POST
     let response = "";		// Textual response to send to client
     let headers = {};		// Hash of HTTP headers
@@ -57,28 +57,26 @@ function dispatchClient(socket) {
     let body = "";		// Body of the HTTP request, for POSTs
     function onData(data) {
 	// Incoming data event handler
-	// You should buffer input.
-	// https://www.reddit.com/r/node/comments/59zgte/comment/d9cnymh/
-	sockInput += data.toString();
-	let lines = sockInput.split("\r\n");
-	sockInput = lines.pop();
-	// sockInput contains the last line fragment, i.e. characters
-	// that were not terminated with a \r\n.
-	lines.forEach(readLine);
-	if (isReadingBody) {
-	    body += sockInput;
-	    if (body.length >= (headers["content-length"] ?? 0)) {
-		writeFiles();
-		close();
+	if (!isReadingBody) {
+	    head += data.toString();
+	    let m;
+	    if (m = head.match(/(.+?\r\n)\r\n(.*)/sm)) {
+		head = m[1];
+		body = m[2];
+		head.split("\r\n").forEach(readLine);
 	    }
+	} else {
+	    body += data.toString();
+	}
+	if (isReadingBody && body.length >= (headers["content-length"] ?? 0)) {
+	    writeFiles();
+	    close();
 	}
     }
     function readLine(line) {
 	// Read a line from the incoming buffer
 	let matches;
-	if (isReadingBody) {
-	    body += line + "\r\n";
-	} else if (matches = /^GET\s+(\S+)/.exec(line)) {
+	if (matches = /^GET\s+(\S+)/.exec(line)) {
 	    // GET request
 	    let gpath = matches[1];
 	    reqType = "GET";
