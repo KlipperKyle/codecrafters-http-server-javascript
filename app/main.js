@@ -239,12 +239,16 @@ function dispatchClient(socket) {
 	resLine = "HTTP/1.1 405 Method Not Allowed";
     }
     function finalizeResponse() {
-	let encAlg = reqHeaders["accept-encoding"]
-	if (supportedCompressions.has(encAlg)) {
-	    resHeaders["Content-Encoding"] = encAlg;
-	    if (encAlg === "gzip") {
-		resBody = zlib.gzipSync(resBody);
+	let clientEncs = (reqHeaders["accept-encoding"] ?? "").split(/,\s*/);
+	let myEnc = "";
+	for (let i = 0; i < clientEncs.length; i++) {
+	    if (supportedCompressions.has(clientEncs[i])) {
+		myEnc = resHeaders["Content-Encoding"] = clientEncs[i];
+		break;
 	    }
+	}
+	if (myEnc === "gzip") {
+	    resBody = zlib.gzipSync(resBody);
 	}
 	resHeaders["Content-Length"] = resBody.length;
     }
