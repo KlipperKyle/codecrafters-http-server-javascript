@@ -15,6 +15,8 @@ Options:
 	Show this help
 `;
 
+const supportedCompressions = new Set (["gzip"]);
+
 let directory;
 
 function parseArgs(argv) {
@@ -139,7 +141,6 @@ function dispatchClient(socket) {
 		    `${socket.remoteAddress}:${socket.remotePort}`);
 	resLine = "HTTP/1.1 200 OK";
 	resHeaders["Content-Type"] = "text/plain";
-	resHeaders["Content-Length"] = `${str.length}`;
 	resBody = str;
     }
     function getFiles(relpath) {
@@ -166,7 +167,6 @@ function dispatchClient(socket) {
 			`${socket.remoteAddress}:${socket.remotePort}`);
 	    resLine = "HTTP/1.1 200 OK";
 	    resHeaders["Content-Type"] = "application/octet-stream";
-	    resHeaders["Content-Length"] = `${contents.length}`;
 	    resBody = contents;
 	} catch (err) {
 	    console.error(`ERROR: 403 Forbidden: GET /files/${relpath} from ` +
@@ -186,7 +186,6 @@ function dispatchClient(socket) {
 	if (userAgentEcho) {
 	    let ua = reqHeaders["user-agent"] ?? "";
 	    resHeaders["Content-Type"] = "text/plain";
-	    resHeaders["Content-Length"] = `${ua.length}`;
 	    resBody = ua;
 	}
     }
@@ -238,6 +237,12 @@ function dispatchClient(socket) {
 		      `${socket.remoteAddress}:${socket.remotePort}`);
 	resLine = "HTTP/1.1 405 Method Not Allowed";
     }
+    function finalizeResponse() {
+	resHeaders["Content-Length"] = resBody.length;
+	if (supportedCompressions.has(reqHeaders["accept-encoding"])) {
+	    resHeaders["Content-Encoding"] = reqHeaders["accept-encoding"];
+	}
+    }
     function serializeResponse() {
 	let response = resLine + "\r\n";
 	for (let h in resHeaders) {
@@ -248,6 +253,7 @@ function dispatchClient(socket) {
 	return response;
     }
     function close() {
+	finalizeResponse();
 	socket.write(serializeResponse());
 	socket.end();
     }
