@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const net = require("net");
 const path = require("node:path");
+const zlib = require("zlib");
 
 const HELP =`
 main.js: CodeCrafters HTTP Server in JavaScript
@@ -45,13 +46,13 @@ function parseArgs(argv) {
 
 function dispatchClient(socket) {
     // Handle a single client connection
-    let reqHead = "";		// Command and headers
+    let reqHead = Buffer.from(""); // Command and headers
     let reqType = "";		// GET or POST
     let reqHeaders = {};	// Request headers
-    let reqBody = "";		// Request body, for POSTs
+    let reqBody = Buffer.from(""); // Request body, for POSTs
     let resLine = "";		// Response line
     let resHeaders = {};	// Response headers
-    let resBody = "";		// Response body
+    let resBody = Buffer.from(""); // Response body
     let userAgentEcho = false;	// Triggers an echo of the client's
 				// User-Agent, for `GET /user-agent`
     let isReadingBody = false;	// Whether we are reading the body of
@@ -62,15 +63,15 @@ function dispatchClient(socket) {
     function onData(data) {
 	// Incoming data event handler
 	if (!isReadingBody) {
-	    reqHead += data.toString();
-	    let m;
-	    if (m = reqHead.match(/(.+?\r\n)\r\n(.*)/sm)) {
-		reqHead = m[1];
-		reqBody = m[2];
-		reqHead.split("\r\n").forEach(readLine);
+	    reqHead = Buffer.concat([reqHead, data]);
+	    let i = reqHead.indexOf("\r\n\r\n");
+	    if (i >= 0) {
+		reqHead = reqHead.slice(0, i + 2)
+		reqBody = reqHead.slice(i + 4)
+		reqHead.toString().split("\r\n").forEach(readLine);
 	    }
 	} else {
-	    reqBody += data.toString();
+	    reqBody = Buffer.concat([reqBody, data]);
 	}
 	if (isReadingBody && reqBody.length >= (reqHeaders["content-length"] ?? 0)) {
 	    writeFiles();
@@ -141,7 +142,7 @@ function dispatchClient(socket) {
 		    `${socket.remoteAddress}:${socket.remotePort}`);
 	resLine = "HTTP/1.1 200 OK";
 	resHeaders["Content-Type"] = "text/plain";
-	resBody = str;
+	resBody = Buffer.from(str);
     }
     function getFiles(relpath) {
 	// GET /files/{filepath}
@@ -186,7 +187,7 @@ function dispatchClient(socket) {
 	if (userAgentEcho) {
 	    let ua = reqHeaders["user-agent"] ?? "";
 	    resHeaders["Content-Type"] = "text/plain";
-	    resBody = ua;
+	    resBody = Buffer.from(ua);
 	}
     }
     function getFallback(gpath) {
@@ -238,18 +239,22 @@ function dispatchClient(socket) {
 	resLine = "HTTP/1.1 405 Method Not Allowed";
     }
     function finalizeResponse() {
-	resHeaders["Content-Length"] = resBody.length;
-	if (supportedCompressions.has(reqHeaders["accept-encoding"])) {
-	    resHeaders["Content-Encoding"] = reqHeaders["accept-encoding"];
+	let encAlg = reqHeaders["accept-encoding"]
+	if (supportedCompressions.has(encAlg)) {
+	    resHeaders["Content-Encoding"] = encAlg;
+	    if (encAlg === "gzip") {
+		resBody = zlib.gzipSync(resBody);
+	    }
 	}
+	resHeaders["Content-Length"] = resBody.length;
     }
     function serializeResponse() {
-	let response = resLine + "\r\n";
+	let head = resLine + "\r\n";
 	for (let h in resHeaders) {
-	    response += `${h}: ${resHeaders[h]}\r\n`;
+	    head += `${h}: ${resHeaders[h]}\r\n`;
 	}
-	response += "\r\n";
-	response += resBody;
+	head += "\r\n";
+	let response = Buffer.concat([Buffer.from(head), resBody]);
 	return response;
     }
     function close() {
